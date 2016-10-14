@@ -1,0 +1,127 @@
+OS Assignment 1 README
+Bharathkrishna Guruvayoor Murali - 110945903
+
+
+Minimal kernel configuration 
+-------------------------------
+Reduced number of config lines to less than 1000, and successfully built a minimized kernel. The configuration is saved as:
+ /usr/src/hw1-bguruvayoorm/kernel.config
+
+ Implementation of system call
+-----------------------------------
+This is done by maintaining the directory structure provided. The code is present in hw1-bguruvayoorm/hw1 folder.
+
+The user program is present in xmergesort.c
+The code for system call is in sys_xmergesort.c
+
+Usage : ./xmergesort -(u|a)[itd] outfile.txt file1.txt file2.txt [file3.txt .. fileN.txt] 
+
+User program - xmergesort.c
+-------------
+The user program accepts the command line parameters and invokes the system call.
+The user level checks are done to verify the number of arguments passed and if all the required arguments are received. Otherwise it lets the user know the format to enter the arguments.
+The flags, input and output files are parsed from the argc array efficiently using getopt. 
+Once the arguments are received, it is passed to the system call.
+For the 'd' flag, the data parameter is also initialised and allocated memory and passed to the system call, which receives the number of records written when the flag is set.
+All these validations and techniques hold in case of multiple file sorting also.
+
+
+System call program - sys_xmergesort.c
+------------------------------------------
+
+Main Validations
+-----------------
+1. Input files should be regular file, checked using vfs_stat.
+2. Checking input files are all different (no two same input files), checked by comparing stat output dev and inode values.
+3. Checking input file(s) and output file are different, checked by comparing stat output dev and inode values.
+4. Output files should have a permission set to the least permission among input files (or it is set accordingly in system call).
+	- The input mode is obtained from the inode for each input file (input_file->f_path.dentry->d_inode->i_mode) and the minimum 
+	  among these is found and that value is given as permission to the output file.
+
+Other validations specified in hw1.txt (assignment description) are also taken care of,
+
+Flags implementation
+---------------------
+As instructed by Prof. Zadok, the following logic is used to handle various flags:
+
+1.It is an error when there are no flags as input by user.
+2.Either u or a flag should be provided.
+3.Both u and a flags should not be provided at the same time.
+
+
+The various combinations of flags are taken care of. Like,
+
+When there is a : When a non-sorted record comes in, it just discards it and continues processing with next one.
+When there is t : When a non-sorted record comes in, it stops processing and gives error and cleans up.
+When there is u : It discards duplicates based on string comparison
+when there is u,i : It discards duplicates based on case comparison
+When there is i,t : It stops processing and gives error if the process finds a record in non-sorted order case-insensitively.
+When d flag is set: Number of records written is provided back to user (Which in turn is printed on executing user program).
+
+All other valid combinations are also handled correctly.
+
+
+Other main points on functionality
+--------------------------
+
+Debug mode present (on uncommenting DEBUG mode line in system call).
+Invalid filenames and non-regular files and other error handling done (NULL pointers, files etc..)
+Memory allocation and deallocation done ( Also using getname, copy_to_user to properly copy values to kernel space)
+Partial output files are cleaned up, both in error and success conditions.
+
+
+Read and write logic - improving efficiency
+----------------------------------------------
+
+The code is made efficient by using buffers for reading and writing from/to files.
+The next read is performed only when the contents of read buffer are completely processed.
+Similarly, the next write call happens only when the write buffer is full.
+Following are the buffers used:
+
+1. read_buf - Holds the content (upto PAGE_SIZE) read from the input file.
+2. read_result_buf - Holds the current string (ie. record upto \n).
+The above buffers are present twice (for 2 input files which are compared at a time). Same is extended for handling multiple files too.
+
+3. write_buf - The buffer having the records to be written into output file - which will be flushed to output file when it is full.
+4. last_write_buf - The buffer which holds the last record written to output (used for comparing in case of flags).
+
+Hence, vfs_read is called which fills the read_buf. Then the subsequent reads are performed from the read_buf to the read_result_buffer buffer until it reaches the end. Then read_buf is filled again by calling vfs_read.
+
+The write_buf is filled with the records to write until it becomes full(reaches the PAGE_SIZE). At this point the write_buf is flushed to the output file. Also, when the merging is done, the remaining records in the write_buf is written to the output file.
+
+The sort is done by comparing corresponding records from the 2 files under consideration, and writing the appropriate record to the output buffer. Initially a temp file is created to hold the output. In case of a failure, the temp file is deleted and cleanup is done. In case of successful completion of mergesort, the temp file is renamed to the output file. The output file is created with appropriate permissions(equal to least permission among input files).
+
+
+Extra  credit code
+---------------------
+Validations and error check is done for multiple input files (ie. permissions, regular file check, input files and/or output file same).
+The mergesort functionality is extended to sort multiple files(mor than two). Here, the temporary file which is the output of the first iteration is used as an input file in the second iteration. This logic includes two temporary files, and they are switched as input/output files according to the successive iterations.
+
+After multiple file comparisons and merging, the final output temp file is renamed to output file. The other temp file(which is not required anymore) is unlinked.
+In case of a failure, both the temp files are cleaned up and the output file is created only when the mergesort is done successfully.
+
+NOTE: I haven't created  #ifdef EXTRA_CREDIT blocks because extra credit functionality here is achieved by writing the code in a generic way, hence if I put these blocks, there needs to be a lot of repetition of code and it makes it a lot more difficult to understand as I will need to put those blocks between various iterations and conditions.
+Hence, I have kept it simple and not made any demarcations for Extra_credit code.
+
+To clarify again, normal functionality can be checked by :
+
+./xmergesort -(u|a)[itd] outfile.txt file1.txt file2.txt
+
+Extra credit functionality can be checked by:
+
+./xmergesort -(u|a)[itd] outfile.txt file1.txt file2.txt [file3.txt .. fileN.txt] 
+
+
+Anyways, Extra Credit functionality can be easily verified by giving multiple input files, and checking the results.
+
+
+
+REFERENCES
+-----------
+
+1. Linux source code 4.6.0 reference - http://lxr.free-electrons.com/source/?v=4.6
+2. Lecture notes and comments from the instructor (Prof. Zadok)
+3. Error codes - http://www.thegeekstuff.com/2010/10/linux-error-codes 
+4. getopt description - http://man7.org/linux/man-pages/man3/opterr.3.html
+5. vfs_read example  - http://stackoverflow.com/questions/1184274/how-to-read-write-files-within-a-linux-kernel-module
+
